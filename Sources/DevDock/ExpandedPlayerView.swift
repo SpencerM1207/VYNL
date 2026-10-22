@@ -196,10 +196,9 @@ struct ExpandedPlayerView: View {
                 .opacity(info == nil ? 0.5 : 1)
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(info?.title ?? "Nothing playing")
+                    MarqueeText(text: info?.title ?? "Nothing playing", isActive: info?.isPlaying ?? false)
                         .font(theme.font(15, .semibold))
                         .foregroundStyle(theme.textPrimary)
-                        .lineLimit(1)
                     if info == nil && nowPlaying.followed != .auto {
                         followedEmptyState
                     } else {

@@ -96,3 +96,81 @@ func formatTime(_ seconds: TimeInterval) -> String {
     let total = Int(seconds.rounded(.down))
     return String(format: "%02d:%02d", total / 60, total % 60)
 }
+
+/// One line of text that scrolls sideways when it's too long to fit, instead of ending in "…".
+/// It waits at the start, scrolls one full loop, and repeats. Short text, paused playback and
+/// Reduce Motion all show it still and truncated.
+struct MarqueeText: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let text: String
+    var isActive = true
+
+    private static let speed: Double = 28      // points per second
+    private static let gap: CGFloat = 36       // space between the end and the repeat
+    private static let pause: Double = 2.5     // seconds at the start of each loop
+    private static let fade: CGFloat = 10
+
+    @State private var textWidth: CGFloat = 0
+    @State private var boxWidth: CGFloat = 0
+    @State private var startDate = Date()
+
+    var body: some View {
+        let scrolls = textWidth > boxWidth + 0.5 && boxWidth > 0 && isActive && !reduceMotion
+        Text(text)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .opacity(scrolls ? 0 : 1)
+            .overlay(alignment: .leading) {
+                if scrolls {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+                        HStack(spacing: Self.gap) {
+                            Text(text).fixedSize()
+                            Text(text).fixedSize()
+                        }
+                        .offset(x: offset(at: context.date))
+                    }
+                    .frame(width: boxWidth, alignment: .leading)
+                    .clipped()
+                    .mask(edgeFade)
+                }
+            }
+            .background {
+                GeometryReader { box in
+                    Color.clear
+                        .onAppear { boxWidth = box.size.width }
+                        .onChange(of: box.size.width) { _, width in boxWidth = width }
+                }
+            }
+            .background {
+                Text(text)
+                    .fixedSize()
+                    .hidden()
+                    .background {
+                        GeometryReader { measured in
+                            Color.clear
+                                .onAppear { textWidth = measured.size.width }
+                                .onChange(of: measured.size.width) { _, width in textWidth = width }
+                        }
+                    }
+            }
+            .onChange(of: text) { _, _ in startDate = Date() }
+            .onChange(of: isActive) { _, _ in startDate = Date() }
+    }
+
+    private func offset(at date: Date) -> CGFloat {
+        let distance = Double(textWidth + Self.gap)
+        let cycle = Self.pause + distance / Self.speed
+        let t = date.timeIntervalSince(startDate).truncatingRemainder(dividingBy: cycle)
+        return t < Self.pause ? 0 : -CGFloat((t - Self.pause) * Self.speed)
+    }
+
+    private var edgeFade: some View {
+        HStack(spacing: 0) {
+            LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                .frame(width: Self.fade)
+            Color.black
+            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                .frame(width: Self.fade)
+        }
+    }
+}
