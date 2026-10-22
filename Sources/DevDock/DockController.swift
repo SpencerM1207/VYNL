@@ -61,6 +61,8 @@ final class DockController: NSObject {
             soundCloud: store.soundCloud,
             soundCloudPlayer: store.soundCloudPlayer,
             soundCloudWeb: store.soundCloudWeb,
+            spotifyWeb: store.spotifyWeb,
+            appleMusic: store.appleMusic,
             appearance: store.appearance,
             lyrics: store.lyrics,
             onCollapse: { [weak self] in self?.collapse() }
@@ -100,13 +102,17 @@ final class DockController: NSObject {
             NSLog("VYNL: couldn't register Control-Option-M. Another app may already use it.")
         }
 
-        // Switching tabs, showing lyrics, or adding SoundCloud keys resizes the open player.
+        // Switching tabs or music services, showing lyrics, or adding SoundCloud keys resizes the open player.
         // @Published fires before the value changes, so resize on the next turn of the run loop.
         store.dock.$mode
             .removeDuplicates()
             .sink { [weak self] _ in DispatchQueue.main.async { self?.resizeIfExpanded() } }
             .store(in: &cancellables)
         store.dock.$showsLyrics
+            .removeDuplicates()
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.resizeIfExpanded() } }
+            .store(in: &cancellables)
+        store.dock.$musicService
             .removeDuplicates()
             .sink { [weak self] _ in DispatchQueue.main.async { self?.resizeIfExpanded() } }
             .store(in: &cancellables)
@@ -220,6 +226,7 @@ final class DockController: NSObject {
     private var expandedSize: NSSize {
         DockGeometry.expandedSize(
             mode: store.dock.mode,
+            musicService: store.dock.musicService,
             soundCloudNative: store.soundCloud.hasCredentials,
             showsLyrics: store.dock.showsLyrics
         )

@@ -1,9 +1,10 @@
 import SwiftUI
 
 /// The full player. Now Playing tab: big record, song info, tags, transport, seek bar, EQ, and
-/// a lyrics column on the right (or left; mic button or Settings).
-/// SoundCloud tab: search (or SoundCloud's site when there are no API keys).
-/// Settings tab (sliders icon): lyrics, clear background, opacity, font, colors.
+/// a lyrics column on the right (or left; mic button or Settings). The source tag picks which
+/// app Now Playing follows.
+/// Music tab: Spotify, SoundCloud or Apple Music, browsed and played inside VYNL.
+/// Settings tab (sliders icon): which app to follow, lyrics, clear background, opacity, font, colors.
 /// Only the parts that change often observe their own data, so the 30 fps spectrum and the
 /// lyrics timer don't re-render the whole panel.
 struct ExpandedPlayerView: View {
@@ -15,7 +16,9 @@ struct ExpandedPlayerView: View {
     let spectrum: SpectrumAnalyzer
     let soundCloud: SoundCloudService
     let soundCloudPlayer: SoundCloudPlayer
-    let soundCloudWeb: SoundCloudWebSession
+    let soundCloudWeb: MusicWebSession
+    let spotifyWeb: MusicWebSession
+    let appleMusic: AppleMusicSearch
     @ObservedObject var appearance: AppearanceSettings
     let lyrics: LyricsController
     let onCollapse: () -> Void
@@ -80,10 +83,17 @@ struct ExpandedPlayerView: View {
                     .frame(height: 1)
                 EQSection(eq: eq, spectrum: spectrum)
                 Spacer(minLength: 0)
-            case .soundCloud:
-                SoundCloudPane(service: soundCloud, player: soundCloudPlayer, webSession: soundCloudWeb)
+            case .music:
+                MusicPane(
+                    dock: dock,
+                    soundCloud: soundCloud,
+                    soundCloudPlayer: soundCloudPlayer,
+                    soundCloudWeb: soundCloudWeb,
+                    spotifyWeb: spotifyWeb,
+                    appleMusic: appleMusic
+                )
             case .settings:
-                AppearanceView(appearance: appearance, dock: dock)
+                AppearanceView(appearance: appearance, dock: dock, nowPlaying: nowPlaying)
             }
         }
         .padding(16)
@@ -110,7 +120,7 @@ struct ExpandedPlayerView: View {
         HStack(spacing: 12) {
             HStack(spacing: 4) {
                 tab("Now Playing", mode: .player)
-                tab("SoundCloud", mode: .soundCloud)
+                tab("Music", mode: .music)
             }
             Spacer()
             Button {
@@ -190,17 +200,16 @@ struct ExpandedPlayerView: View {
                         .font(theme.font(15, .semibold))
                         .foregroundStyle(theme.textPrimary)
                         .lineLimit(1)
-                    Text(subtitle(for: info))
-                        .font(theme.font(12))
-                        .foregroundStyle(theme.textSecondary)
-                        .lineLimit(2)
+                    if info == nil && nowPlaying.followed != .auto {
+                        followedEmptyState
+                    } else {
+                        Text(subtitle(for: info))
+                            .font(theme.font(12))
+                            .foregroundStyle(theme.textSecondary)
+                            .lineLimit(2)
+                    }
                     HStack(spacing: 6) {
-                        if let info {
-                            InfoChip(
-                                symbol: MediaSource.symbol(for: info.sourceBundleID),
-                                text: MediaSource.displayName(for: info.sourceBundleID)
-                            )
-                        }
+                        sourceChip
                         InfoChip(symbol: "hifispeaker.fill", text: output.deviceName)
                     }
                     .padding(.top, 2)
@@ -220,10 +229,79 @@ struct ExpandedPlayerView: View {
             case .spotify:
                 return "Spotify only. Run scripts/fetch-adapter.sh to see other players too."
             case .starting, .adapter:
-                return "Play something in Spotify, SoundCloud or any player."
+                return "Play something in Spotify, SoundCloud, Apple Music or any player."
             }
         }
         return [info.artist, info.album].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    /// Where the song is playing. Click it to choose which app Now Playing follows; accent-colored
+    /// while it's locked to one.
+    private var sourceChip: some View {
+        let followed = nowPlaying.followed
+        let symbol: String
+        let text: String
+        if let info = nowPlaying.info {
+            symbol = MediaSource.symbol(for: info.sourceBundleID)
+            text = MediaSource.displayName(for: info.sourceBundleID)
+        } else {
+            symbol = followed.symbol
+            text = followed.title
+        }
+        return Button {
+            showFollowMenu()
+        } label: {
+            InfoChip(symbol: symbol, text: text, opensMenu: true, highlighted: followed != .auto)
+        }
+        .buttonStyle(.plain)
+        .help(followed == .auto
+            ? "Showing whatever's playing. Click to follow one app."
+            : "Following \(followed.title) only. Click to change.")
+    }
+
+    private func showFollowMenu() {
+        let nowPlaying = self.nowPlaying
+        PopupMenu.show(
+            header: "Now Playing follows",
+            items: PlayerSource.allCases.map { source in
+                PopupMenu.Item(
+                    title: source == .auto ? "Auto (whatever's playing)" : source.title,
+                    isChecked: nowPlaying.followed == source
+                ) {
+                    nowPlaying.followed = source
+                }
+            }
+        )
+    }
+
+    /// Following one app with nothing playing in it: say so, and offer to open it.
+    private var followedEmptyState: some View {
+        let followed = nowPlaying.followed
+        return VStack(alignment: .leading, spacing: 3) {
+            Text("Following \(followed.title).")
+                .font(theme.font(12))
+                .foregroundStyle(theme.textSecondary)
+                .lineLimit(1)
+            if let bundleID = followed.appBundleID, MusicPane.isInstalled(bundleID) {
+                emptyStateButton("Open \(followed.appName)") {
+                    nowPlaying.openFollowedApp()
+                }
+            } else if let service = followed.musicService {
+                emptyStateButton("Find music in the Music tab") {
+                    dock.musicService = service
+                    dock.mode = .music
+                }
+            }
+        }
+    }
+
+    private func emptyStateButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(theme.font(11, .semibold))
+                .foregroundStyle(theme.accent)
+        }
+        .buttonStyle(.plain)
     }
 }
 

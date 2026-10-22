@@ -24,6 +24,8 @@ else
   git clone --depth 1 https://github.com/ungive/mediaremote-adapter.git "$SRC"
 fi
 
+# Configure from scratch every time: a failed attempt leaves cached compiler settings behind.
+rm -rf "$SRC/build"
 cmake -S "$SRC" -B "$SRC/build" -DCMAKE_BUILD_TYPE=Release
 cmake --build "$SRC/build" --config Release
 

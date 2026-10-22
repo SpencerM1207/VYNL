@@ -63,28 +63,93 @@ struct HostedWebView: NSViewRepresentable {
     }
 }
 
-/// soundcloud.com itself, for when there are no API keys. Signed in with your own account
-/// (cookies persist), searched and played on SoundCloud's site. Created on first use.
+/// A music website inside the Music tab: soundcloud.com (when there are no API keys) or
+/// Spotify's web player. Signed in with your own account (cookies persist), searched and played
+/// on the site itself. The web view is created the first time the tab shows it.
 @MainActor
-final class SoundCloudWebSession: NSObject, WKUIDelegate {
-    private static let home = URL(string: "https://soundcloud.com/discover")!
-    /// SoundCloud serves its full desktop site to Safari, and Google allows sign-in from it.
+final class MusicWebSession: NSObject, WKUIDelegate {
+    /// Buttons on the site's own player bar, for controls when macOS isn't routing them here.
+    struct PlayerControls {
+        let playPause: String
+        let next: String
+        let previous: String
+    }
+
+    /// Sites serve their full desktop versions to Safari, and Google allows sign-in from it.
     private static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
-    /// Popups from these sites stay in DevDock (sign-in). Other new-window links go to your browser.
-    private static let popupHosts = ["soundcloud.com", "google.com", "apple.com", "facebook.com"]
+
+    static func soundCloud() -> MusicWebSession {
+        MusicWebSession(
+            home: URL(string: "https://soundcloud.com/discover")!,
+            popupHosts: ["soundcloud.com", "google.com", "apple.com", "facebook.com"],
+            controls: PlayerControls(
+                playPause: ".playControls__play",
+                next: ".skipControl__next",
+                previous: ".skipControl__previous"
+            )
+        )
+    }
+
+    static func spotify() -> MusicWebSession {
+        MusicWebSession(
+            home: URL(string: "https://open.spotify.com/")!,
+            popupHosts: ["spotify.com", "google.com", "apple.com", "facebook.com"],
+            controls: PlayerControls(
+                playPause: "[data-testid=\"control-button-playpause\"]",
+                next: "[data-testid=\"control-button-skip-forward\"]",
+                previous: "[data-testid=\"control-button-skip-back\"]"
+            )
+        )
+    }
+
+    let home: URL
+    /// Popups from these sites stay in VYNL (sign-in). Other new-window links go to your browser.
+    private let popupHosts: [String]
+    private let controls: PlayerControls
 
     /// True while a sign-in popup is open, so the player doesn't collapse behind it (set by PlayerStore).
     var onPopupChange: ((Bool) -> Void)?
 
+    /// False until the tab first shows the site; nothing loads before that.
+    private(set) var isLoaded = false
     private(set) lazy var webView: WKWebView = makeWebView()
     private var popups: [WebPopup] = []
+
+    init(home: URL, popupHosts: [String], controls: PlayerControls) {
+        self.home = home
+        self.popupHosts = popupHosts
+        self.controls = controls
+    }
 
     func goBack() { webView.goBack() }
     func goForward() { webView.goForward() }
     func reload() { webView.reload() }
-    func goHome() { webView.load(URLRequest(url: Self.home)) }
+    func goHome() { webView.load(URLRequest(url: home)) }
+
+    /// Whether the site is playing something right now (false before it has loaded).
+    func isPlaying() async -> Bool {
+        guard isLoaded else { return false }
+        return await webView.requestMediaPlaybackState() == .playing
+    }
+
+    /// Presses the site's own player buttons. Seeking isn't offered by the sites' buttons.
+    func perform(_ command: InternalCommand) {
+        guard isLoaded else { return }
+        let selector: String
+        switch command {
+        case .togglePlayPause: selector = controls.playPause
+        case .nextTrack: selector = controls.next
+        case .previousTrack: selector = controls.previous
+        case .seek: return
+        }
+        let quoted = selector
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        webView.evaluateJavaScript("document.querySelector('\(quoted)')?.click();", completionHandler: nil)
+    }
 
     private func makeWebView() -> WKWebView {
+        isLoaded = true
         let configuration = WKWebViewConfiguration()
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.websiteDataStore = .default()
@@ -93,7 +158,7 @@ final class SoundCloudWebSession: NSObject, WKUIDelegate {
         view.pageZoom = 0.8
         view.allowsBackForwardNavigationGestures = true
         view.uiDelegate = self
-        view.load(URLRequest(url: Self.home))
+        view.load(URLRequest(url: home))
         WebViewParking.shared.park(view)
         return view
     }
@@ -111,7 +176,7 @@ final class SoundCloudWebSession: NSObject, WKUIDelegate {
     ) -> WKWebView? {
         let url = navigationAction.request.url
         if let url, let host = url.host?.lowercased(),
-           !Self.popupHosts.contains(where: { host == $0 || host.hasSuffix("." + $0) }) {
+           !popupHosts.contains(where: { host == $0 || host.hasSuffix("." + $0) }) {
             NSWorkspace.shared.open(url)
             return nil
         }
@@ -147,7 +212,7 @@ final class SoundCloudWebSession: NSObject, WKUIDelegate {
 }
 
 /// A sign-in popup: a small titled panel above the player that takes typing without
-/// activating DevDock (like the player itself).
+/// activating VYNL (like the player itself).
 @MainActor
 final class WebPopup: NSObject, NSWindowDelegate {
     let webView: WKWebView

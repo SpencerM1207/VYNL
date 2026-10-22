@@ -1,11 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// The SoundCloud tab: DevDock's own search when API keys are set, SoundCloud's site otherwise.
+/// SoundCloud in the Music tab: VYNL's own search when API keys are set, SoundCloud's site otherwise.
 struct SoundCloudPane: View {
+    @Environment(\.theme) private var theme
     @ObservedObject var service: SoundCloudService
     let player: SoundCloudPlayer
-    let webSession: SoundCloudWebSession
+    let webSession: MusicWebSession
 
     @State private var editingKeys = false
 
@@ -16,7 +17,17 @@ struct SoundCloudPane: View {
             } else if service.hasCredentials {
                 SoundCloudSearchView(service: service, player: player) { editingKeys = true }
             } else {
-                SoundCloudWebPane(session: webSession) { editingKeys = true }
+                WebMusicPane(session: webSession, siteName: "soundcloud.com", homeHelp: "SoundCloud home") {
+                    Button {
+                        editingKeys = true
+                    } label: {
+                        Label("Add API keys for VYNL search", systemImage: "key.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .font(theme.font(10, .semibold))
+                    .foregroundStyle(theme.accent)
+                    .help("SoundCloud API keys (Artist Pro) switch this to VYNL's own search")
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -324,11 +335,14 @@ struct SoundCloudKeysForm: View {
 
 // MARK: - Embedded site
 
-/// soundcloud.com inside the panel, with simple navigation and a way to add API keys.
-struct SoundCloudWebPane: View {
+/// A music website inside the panel (soundcloud.com, Spotify's web player), with simple
+/// navigation and a slot on the right for a service-specific button.
+struct WebMusicPane<Accessory: View>: View {
     @Environment(\.theme) private var theme
-    let session: SoundCloudWebSession
-    let onAddKeys: () -> Void
+    let session: MusicWebSession
+    let siteName: String
+    let homeHelp: String
+    @ViewBuilder let accessory: () -> Accessory
 
     var body: some View {
         VStack(spacing: 8) {
@@ -336,18 +350,12 @@ struct SoundCloudWebPane: View {
                 navButton("chevron.left", help: "Back") { session.goBack() }
                 navButton("chevron.right", help: "Forward") { session.goForward() }
                 navButton("arrow.clockwise", help: "Reload") { session.reload() }
-                navButton("house", help: "SoundCloud home") { session.goHome() }
-                Text("soundcloud.com")
+                navButton("house", help: homeHelp) { session.goHome() }
+                Text(siteName)
                     .font(theme.font(10, .medium))
                     .foregroundStyle(theme.textSecondary)
                 Spacer()
-                Button(action: onAddKeys) {
-                    Label("Add API keys for VYNL search", systemImage: "key.fill")
-                }
-                .buttonStyle(.plain)
-                .font(theme.font(10, .semibold))
-                .foregroundStyle(theme.accent)
-                .help("SoundCloud API keys (Artist Pro) switch this tab to VYNL's own search")
+                accessory()
             }
             HostedWebView(webView: session.webView)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))

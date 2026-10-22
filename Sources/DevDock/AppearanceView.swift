@@ -1,11 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// The Settings tab: lyrics, clear background, opacity, font, hex colors and palettes.
-/// Every change applies live and is saved.
+/// The Settings tab: which app Now Playing follows, lyrics, clear background, opacity, font,
+/// hex colors and palettes. Every change applies live and is saved.
 struct AppearanceView: View {
     @ObservedObject var appearance: AppearanceSettings
     @ObservedObject var dock: DockModel
+    @ObservedObject var nowPlaying: NowPlayingService
     @Environment(\.theme) private var theme
 
     /// Installed font families, read once.
@@ -14,6 +15,25 @@ struct AppearanceView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                section("Now Playing") {
+                    row("Follow") {
+                        Picker("Follow", selection: $nowPlaying.followed) {
+                            ForEach(PlayerSource.allCases) { source in
+                                Text(source.title).tag(source)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 150, alignment: .leading)
+                        Spacer()
+                    }
+                    Text(followHint)
+                        .font(theme.font(10))
+                        .foregroundStyle(theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 78)
+                }
+
                 section("Lyrics") {
                     row("Show") {
                         Toggle("Show lyrics", isOn: $dock.showsLyrics)
@@ -116,6 +136,17 @@ struct AppearanceView: View {
             .padding(.bottom, 8)
         }
         .scrollIndicators(.never)
+    }
+
+    private var followHint: String {
+        switch nowPlaying.followed {
+        case .auto:
+            return "Shows whatever's playing on your Mac."
+        case .soundCloud:
+            return "Sticks to SoundCloud (in VYNL or a browser): its song, controls and lyrics, even when something else plays."
+        case .spotify, .appleMusic:
+            return "Sticks to \(nowPlaying.followed.title): its song, controls and lyrics, even when something else plays."
+        }
     }
 
     private var presetRow: some View {

@@ -11,11 +11,14 @@ final class PlayerStore {
     let spectrum: SpectrumAnalyzer
     let soundCloud = SoundCloudService()
     let soundCloudPlayer = SoundCloudPlayer()
-    let soundCloudWeb = SoundCloudWebSession()
+    let soundCloudWeb = MusicWebSession.soundCloud()
+    let spotifyWeb = MusicWebSession.spotify()
+    let appleMusic = AppleMusicSearch()
     let appearance = AppearanceSettings()
     let lyrics: LyricsController
 
     private var cancellables = Set<AnyCancellable>()
+    private var openPopups: Set<String> = []
 
     init() {
         let output = OutputDeviceMonitor()
@@ -32,7 +35,7 @@ final class PlayerStore {
     }
 
     func start() {
-        // DevDock's own SoundCloud playback shows on the record and takes the controls.
+        // VYNL's own SoundCloud playback shows on the record and takes the controls.
         let nowPlaying = self.nowPlaying
         let player = soundCloudPlayer
         player.onInfoChange = { [weak nowPlaying] info in
@@ -44,9 +47,20 @@ final class PlayerStore {
         nowPlaying.onInternalCommand = { [weak player] command in
             player?.handle(command)
         }
-        let dock = self.dock
-        soundCloudWeb.onPopupChange = { [weak dock] open in
-            dock?.holdOpen = open
+        // VYNL's web players: label their sound and press their buttons.
+        nowPlaying.onOwnWebAudio = { [weak self] in
+            self?.identifyOwnWebAudio()
+        }
+        nowPlaying.onWebCommand = { [weak self] service, command in
+            guard let self else { return }
+            (service == .spotify ? self.spotifyWeb : self.soundCloudWeb).perform(command)
+        }
+        // A sign-in popup from either site keeps the player open behind it.
+        soundCloudWeb.onPopupChange = { [weak self] open in
+            self?.popupChanged("soundcloud", open: open)
+        }
+        spotifyWeb.onPopupChange = { [weak self] open in
+            self?.popupChanged("spotify", open: open)
         }
 
         output.start()
@@ -65,5 +79,31 @@ final class PlayerStore {
     func stop() {
         eq.shutdown()
         nowPlaying.stop()
+    }
+
+    // MARK: - Private
+
+    private func popupChanged(_ site: String, open: Bool) {
+        if open {
+            openPopups.insert(site)
+        } else {
+            openPopups.remove(site)
+        }
+        dock.holdOpen = !openPopups.isEmpty
+    }
+
+    /// macOS reports all of VYNL's web audio under one name. Ask the two sites which one is
+    /// playing; if neither is (paused), keep the last answer.
+    private func identifyOwnWebAudio() {
+        Task { [weak self] in
+            guard let self else { return }
+            let spotifyPlaying = await self.spotifyWeb.isPlaying()
+            let soundCloudPlaying = await self.soundCloudWeb.isPlaying()
+            if spotifyPlaying && !soundCloudPlaying {
+                self.nowPlaying.ownWebSource = .spotify
+            } else if soundCloudPlaying {
+                self.nowPlaying.ownWebSource = .soundCloud
+            }
+        }
     }
 }

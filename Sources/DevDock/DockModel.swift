@@ -3,7 +3,22 @@ import Foundation
 
 /// Which tab the full player shows.
 enum PanelMode: String {
-    case player, soundCloud, settings
+    case player, music, settings
+}
+
+/// Which service the Music tab shows.
+enum MusicService: String, CaseIterable, Identifiable {
+    case spotify, soundCloud, appleMusic
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .spotify: return "Spotify"
+        case .soundCloud: return "SoundCloud"
+        case .appleMusic: return "Apple Music"
+        }
+    }
 }
 
 /// Which side of the Now Playing tab the lyrics column sits on.
@@ -17,10 +32,15 @@ final class DockModel: ObservableObject {
     /// True while the full player is showing. Also gates the spectrum analyzer.
     @Published var isExpanded = false
 
-    /// Now Playing or SoundCloud. Kept between openings.
+    /// Now Playing, Music or Settings. Kept between openings.
     @Published var mode: PanelMode = .player
 
-    /// Keeps the player open while something DevDock owns is in front of it (a sign-in popup).
+    /// The service the Music tab shows. Saved.
+    @Published var musicService: MusicService {
+        didSet { UserDefaults.standard.set(musicService.rawValue, forKey: Keys.musicService) }
+    }
+
+    /// Keeps the player open while something VYNL owns is in front of it (a sign-in popup).
     @Published var holdOpen = false
 
     /// Pinned: the player stays open when you click another app.
@@ -49,6 +69,7 @@ final class DockModel: ObservableObject {
         showsLyrics = defaults.object(forKey: Keys.showsLyrics) as? Bool ?? true
         lyricsSide = defaults.string(forKey: Keys.lyricsSide).flatMap(LyricsSide.init(rawValue:)) ?? .right
         transcribesLyrics = defaults.object(forKey: Keys.transcribesLyrics) as? Bool ?? true
+        musicService = defaults.string(forKey: Keys.musicService).flatMap(MusicService.init(rawValue:)) ?? .soundCloud
     }
 
     private enum Keys {
@@ -56,5 +77,6 @@ final class DockModel: ObservableObject {
         static let showsLyrics = "showsLyrics"
         static let lyricsSide = "lyricsSide"
         static let transcribesLyrics = "transcribesLyrics"
+        static let musicService = "musicService"
     }
 }

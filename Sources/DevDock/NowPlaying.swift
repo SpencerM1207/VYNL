@@ -13,7 +13,8 @@ struct NowPlayingInfo {
     var elapsedAt: Date
     var playbackRate: Double
     var isPlaying: Bool
-    /// The app that's playing, e.g. com.spotify.client or com.google.Chrome.
+    /// The app that's playing, e.g. com.spotify.client or com.google.Chrome, or one of
+    /// VYNL's own players (`SourceIDs`).
     var sourceBundleID: String
     var artwork: NSImage?
     /// Changes whenever the artwork changes, so views can skip redundant image work.
@@ -31,19 +32,61 @@ struct NowPlayingInfo {
     }
 }
 
-/// Commands for playback DevDock runs itself (the SoundCloud player).
+/// Commands for playback VYNL runs itself (the SoundCloud player and its web players).
 enum InternalCommand {
     case togglePlayPause, nextTrack, previousTrack, seek(TimeInterval)
 }
 
+/// Which app Now Playing follows. Auto shows whatever macOS says is playing; the others stick
+/// to one app's song and controls even when something else is also playing.
+enum PlayerSource: String, CaseIterable, Identifiable {
+    case auto, spotify, soundCloud, appleMusic
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .auto: return "Auto"
+        case .spotify: return "Spotify"
+        case .soundCloud: return "SoundCloud"
+        case .appleMusic: return "Apple Music"
+        }
+    }
+
+    /// The desktop app to open when it isn't running.
+    var appBundleID: String? {
+        switch self {
+        case .spotify: return SpotifyBridge.bundleID
+        case .appleMusic: return MusicAppBridge.bundleID
+        case .auto, .soundCloud: return nil
+        }
+    }
+}
+
 enum SourceIDs {
-    /// sourceBundleID for tracks DevDock plays itself through SoundCloud's player.
-    static let soundCloud = "vynl.soundcloud"
-    /// DevDock's own bundle ID. Web audio in DevDock (the SoundCloud tab) reports under it.
+    /// VYNL's own SoundCloud player (native search with API keys).
+    static let soundCloudPlayer = "vynl.soundcloud"
+    /// soundcloud.com in VYNL's Music tab.
+    static let soundCloudWeb = "vynl.soundcloud.web"
+    /// Spotify's web player in VYNL's Music tab.
+    static let spotifyWeb = "vynl.spotify.web"
+    /// VYNL's own bundle ID. Its web players report to Now Playing under it.
     static var devDock: String? { Bundle.main.bundleIdentifier }
 
+    /// Audio VYNL plays itself.
     static func isDevDock(_ bundleID: String) -> Bool {
-        bundleID == soundCloud || (devDock != nil && bundleID == devDock)
+        bundleID == soundCloudPlayer || bundleID == soundCloudWeb || bundleID == spotifyWeb
+            || (devDock != nil && bundleID == devDock)
+    }
+
+    /// The service behind a source, for following and labeling.
+    static func service(of bundleID: String) -> PlayerSource? {
+        switch bundleID {
+        case SpotifyBridge.bundleID, spotifyWeb: return .spotify
+        case MusicAppBridge.bundleID: return .appleMusic
+        case soundCloudPlayer, soundCloudWeb: return .soundCloud
+        default: return devDock == bundleID ? .soundCloud : nil
+        }
     }
 }
 
@@ -70,9 +113,8 @@ enum MediaSource {
     ]
 
     static func displayName(for bundleID: String) -> String {
-        // Only SoundCloud plays inside DevDock.
         if SourceIDs.isDevDock(bundleID) {
-            return "SoundCloud"
+            return SourceIDs.service(of: bundleID) == .spotify ? "Spotify" : "SoundCloud"
         }
         if let name = knownNames[bundleID] {
             return name
@@ -84,18 +126,22 @@ enum MediaSource {
     }
 
     static func symbol(for bundleID: String) -> String {
-        if SourceIDs.isDevDock(bundleID) { return "cloud.fill" }
-        if bundleID == SpotifyBridge.bundleID { return "dot.radiowaves.left.and.right" }
-        if browsers.contains(bundleID) { return "globe" }
-        return "music.note"
+        switch SourceIDs.service(of: bundleID) {
+        case .spotify: return "dot.radiowaves.left.and.right"
+        case .soundCloud: return "cloud.fill"
+        case .appleMusic: return "music.note"
+        case .auto, nil: return browsers.contains(bundleID) ? "globe" : "music.note"
+        }
     }
 }
 
-/// Merges the ways DevDock learns what's playing:
-/// 1. mediaremote-adapter, which sees every player (Spotify, SoundCloud in a browser, Apple
-///    Music, YouTube) and can control it.
-/// 2. Spotify's AppleScript, used only when the adapter isn't bundled or keeps failing.
-/// 3. DevDock's own SoundCloud player ("internal"), which reports exact state itself.
+/// Merges the ways VYNL learns what's playing:
+/// 1. mediaremote-adapter, which sees whichever player macOS considers current (Spotify,
+///    SoundCloud in a browser, Apple Music, YouTube) and can control it.
+/// 2. Spotify's and Music's AppleScript, polled while VYNL follows that app (and Spotify's when
+///    the adapter isn't bundled).
+/// 3. VYNL's own SoundCloud player ("internal"), which reports exact state itself.
+/// `followed` picks which of these the player shows; controls go to whichever app that is.
 /// Main thread only.
 final class NowPlayingService: ObservableObject {
     enum Backend {
@@ -104,21 +150,63 @@ final class NowPlayingService: ObservableObject {
 
     @Published private(set) var info: NowPlayingInfo?
     @Published private(set) var backend: Backend = .starting
+    /// Which app to follow (Settings, or the source tag's menu). Saved.
+    @Published var followed: PlayerSource {
+        didSet {
+            UserDefaults.standard.set(followed.rawValue, forKey: Self.followedKey)
+            updateBridges()
+            refresh()
+        }
+    }
 
-    /// Routes controls to DevDock's SoundCloud player while it's the one showing (set by PlayerStore).
+    /// Routes controls to VYNL's SoundCloud player while it's the one showing (set by PlayerStore).
     var onInternalCommand: ((InternalCommand) -> Void)?
+    /// Controls for VYNL's own web players when macOS isn't routing commands to them (set by PlayerStore).
+    var onWebCommand: ((PlayerSource, InternalCommand) -> Void)?
+    /// Called when macOS reports audio from VYNL itself, so PlayerStore can work out which of its
+    /// web players it is and set `ownWebSource`.
+    var onOwnWebAudio: (() -> Void)?
+    /// Which of VYNL's web players is making the sound VYNL reports: Spotify or SoundCloud.
+    var ownWebSource: PlayerSource = .soundCloud {
+        didSet {
+            if ownWebSource != oldValue {
+                refresh()
+            }
+        }
+    }
+
+    private static let followedKey = "followedSource"
 
     private let adapter = MediaRemoteAdapter()
     private let spotify = SpotifyBridge()
-    private var externalInfo: NowPlayingInfo?
+    private let music = MusicAppBridge()
+    /// The adapter's report as it came (or Spotify's, in fallback mode).
+    private var externalRaw: NowPlayingInfo?
     private var internalInfo: NowPlayingInfo?
+    /// From the bridges, while following those apps.
+    private var spotifyInfo: NowPlayingInfo?
+    private var musicInfo: NowPlayingInfo?
+    /// The last SoundCloud song seen, for following SoundCloud while something else plays.
+    private var lastSoundCloudInfo: NowPlayingInfo?
+
+    init() {
+        followed = UserDefaults.standard.string(forKey: Self.followedKey).flatMap(PlayerSource.init(rawValue:)) ?? .auto
+    }
 
     func start() {
         spotify.onUpdate = { [weak self] info in
-            guard let self, self.backend == .spotify else { return }
-            self.externalInfo = info
+            guard let self else { return }
+            self.spotifyInfo = info
+            if self.backend == .spotify {
+                self.externalRaw = info
+            }
             self.refresh()
         }
+        music.onUpdate = { [weak self] info in
+            self?.musicInfo = info
+            self?.refresh()
+        }
+        updateBridges()
         guard adapter.isInstalled else {
             useSpotifyFallback()
             return
@@ -128,7 +216,11 @@ final class NowPlayingService: ObservableObject {
             if self.backend != .adapter {
                 self.backend = .adapter
             }
-            self.externalInfo = info
+            let changedTrack = info?.title != self.externalRaw?.title || info?.isPlaying != self.externalRaw?.isPlaying
+            self.externalRaw = info
+            if let info, info.sourceBundleID == SourceIDs.devDock, changedTrack {
+                self.onOwnWebAudio?()
+            }
             self.refresh()
         }
         adapter.onFailure = { [weak self] in
@@ -140,17 +232,18 @@ final class NowPlayingService: ObservableObject {
     func stop() {
         adapter.stop()
         spotify.stop()
+        music.stop()
     }
 
-    /// DevDock's SoundCloud player reports here.
+    /// VYNL's SoundCloud player reports here.
     func setInternal(_ newInfo: NowPlayingInfo?) {
         internalInfo = newInfo
         refresh()
     }
 
-    /// Pauses another app (Spotify, a browser) before DevDock starts a SoundCloud track.
+    /// Pauses another app (Spotify, a browser) before VYNL starts a SoundCloud track.
     func pauseExternalPlayback() {
-        guard let external = externalInfo, external.isPlaying, !SourceIDs.isDevDock(external.sourceBundleID) else { return }
+        guard let external = externalRaw, external.isPlaying, !SourceIDs.isDevDock(external.sourceBundleID) else { return }
         if usesAdapter {
             adapter.send(.pause)
         } else {
@@ -158,82 +251,187 @@ final class NowPlayingService: ObservableObject {
         }
     }
 
+    /// Opens the followed app when nothing is playing in it.
+    func openFollowedApp() {
+        guard let bundleID = followed.appBundleID,
+              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+        else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    }
+
     // MARK: - Controls
 
     func togglePlayPause() {
-        if showsInternal {
+        switch target {
+        case .internalPlayer:
             onInternalCommand?(.togglePlayPause)
-            return
-        }
-        if var current = externalInfo {
-            // Flip right away so the record and button respond before the player confirms.
-            current.elapsed = current.currentElapsed()
-            current.elapsedAt = Date()
-            current.isPlaying.toggle()
-            externalInfo = current
-            refresh()
-        }
-        if usesAdapter {
+        case .adapter:
+            if var current = externalRaw {
+                // Flip right away so the record and button respond before the player confirms.
+                current.elapsed = current.currentElapsed()
+                current.elapsedAt = Date()
+                current.isPlaying.toggle()
+                externalRaw = current
+                refresh()
+            }
             adapter.send(.togglePlayPause)
-        } else {
+        case .spotifyApp:
             spotify.playPause()
+        case .musicApp:
+            music.playPause()
+        case .web(let service):
+            onWebCommand?(service, .togglePlayPause)
+        case .none:
+            // Following an app with nothing loaded: ask it to play.
+            switch followed {
+            case .spotify: spotify.playPause()
+            case .appleMusic: music.playPause()
+            case .auto, .soundCloud: break
+            }
         }
     }
 
     func nextTrack() {
-        if showsInternal {
-            onInternalCommand?(.nextTrack)
-        } else if usesAdapter {
-            adapter.send(.nextTrack)
-        } else {
-            spotify.nextTrack()
+        switch target {
+        case .internalPlayer: onInternalCommand?(.nextTrack)
+        case .adapter: adapter.send(.nextTrack)
+        case .spotifyApp: spotify.nextTrack()
+        case .musicApp: music.nextTrack()
+        case .web(let service): onWebCommand?(service, .nextTrack)
+        case .none: break
         }
     }
 
     func previousTrack() {
-        if showsInternal {
-            onInternalCommand?(.previousTrack)
-        } else if usesAdapter {
-            adapter.send(.previousTrack)
-        } else {
-            spotify.previousTrack()
+        switch target {
+        case .internalPlayer: onInternalCommand?(.previousTrack)
+        case .adapter: adapter.send(.previousTrack)
+        case .spotifyApp: spotify.previousTrack()
+        case .musicApp: music.previousTrack()
+        case .web(let service): onWebCommand?(service, .previousTrack)
+        case .none: break
         }
     }
 
     func seek(to seconds: TimeInterval) {
-        if showsInternal {
+        switch target {
+        case .internalPlayer:
             onInternalCommand?(.seek(seconds))
-            return
-        }
-        if var current = externalInfo {
-            current.elapsed = seconds
-            current.elapsedAt = Date()
-            externalInfo = current
-            refresh()
-        }
-        if usesAdapter {
+        case .adapter:
+            if var current = externalRaw {
+                current.elapsed = seconds
+                current.elapsedAt = Date()
+                externalRaw = current
+                refresh()
+            }
             adapter.seek(to: seconds)
-        } else {
+        case .spotifyApp:
             spotify.seek(to: seconds)
+        case .musicApp:
+            music.seek(to: seconds)
+        case .web(let service):
+            onWebCommand?(service, .seek(seconds))
+        case .none:
+            break
         }
     }
 
     // MARK: - Private
 
+    /// Where commands for the song on show go.
+    private enum Target {
+        case internalPlayer, adapter, spotifyApp, musicApp, web(PlayerSource), none
+    }
+
+    private var target: Target {
+        guard let info else { return .none }
+        if info.sourceBundleID == SourceIDs.soundCloudPlayer {
+            return .internalPlayer
+        }
+        // macOS sends commands to its current player, which is the adapter's report.
+        if usesAdapter, let external, external.sourceBundleID == info.sourceBundleID {
+            return .adapter
+        }
+        switch info.sourceBundleID {
+        case SpotifyBridge.bundleID: return .spotifyApp
+        case MusicAppBridge.bundleID: return .musicApp
+        case SourceIDs.spotifyWeb: return .web(.spotify)
+        case SourceIDs.soundCloudWeb: return .web(.soundCloud)
+        default: return usesAdapter ? .adapter : .spotifyApp
+        }
+    }
+
     private var usesAdapter: Bool {
         backend != .spotify && adapter.isInstalled
     }
 
-    /// The SoundCloud player wins while it's playing, when nothing else is, or when the "other"
-    /// player is just macOS reporting the same SoundCloud audio coming from DevDock's web view.
+    /// The adapter's report, with VYNL's own web audio labeled as Spotify or SoundCloud.
+    private var external: NowPlayingInfo? {
+        guard var info = externalRaw else { return nil }
+        if info.sourceBundleID == SourceIDs.devDock {
+            info.sourceBundleID = ownWebSource == .spotify ? SourceIDs.spotifyWeb : SourceIDs.soundCloudWeb
+        }
+        return info
+    }
+
+    /// In Auto, the SoundCloud player wins while it's playing, when nothing else is, or when the
+    /// "other" player is just macOS reporting VYNL's own web audio.
     private var showsInternal: Bool {
         guard let internalInfo else { return false }
-        guard let external = externalInfo, !SourceIDs.isDevDock(external.sourceBundleID) else { return true }
+        guard let external = externalRaw, !SourceIDs.isDevDock(external.sourceBundleID) else { return true }
         return internalInfo.isPlaying || !external.isPlaying
     }
 
     private func refresh() {
-        info = showsInternal ? internalInfo : externalInfo
+        let external = self.external
+        if let external, SourceIDs.service(of: external.sourceBundleID) == .soundCloud {
+            lastSoundCloudInfo = external
+        }
+        switch followed {
+        case .auto:
+            info = showsInternal ? internalInfo : external
+        case .spotify:
+            info = Self.matching(external, .spotify) ?? spotifyInfo
+        case .appleMusic:
+            info = Self.matching(external, .appleMusic) ?? musicInfo
+        case .soundCloud:
+            if let internalInfo, internalInfo.isPlaying {
+                info = internalInfo
+            } else if let current = Self.matching(external, .soundCloud) {
+                info = current
+            } else if let internalInfo {
+                info = internalInfo
+            } else if var last = lastSoundCloudInfo {
+                // Something else took over macOS Now Playing: show the SoundCloud song, paused.
+                last.elapsed = last.currentElapsed()
+                last.elapsedAt = Date()
+                last.isPlaying = false
+                info = last
+            } else {
+                info = nil
+            }
+        }
+    }
+
+    private static func matching(_ info: NowPlayingInfo?, _ service: PlayerSource) -> NowPlayingInfo? {
+        guard let info, SourceIDs.service(of: info.sourceBundleID) == service else { return nil }
+        return info
+    }
+
+    /// Polls Spotify while following it (or as the fallback) and Music while following it.
+    private func updateBridges() {
+        if backend == .spotify || followed == .spotify {
+            spotify.start()
+        } else {
+            spotify.stop()
+            spotifyInfo = nil
+        }
+        if followed == .appleMusic {
+            music.start()
+        } else {
+            music.stop()
+            musicInfo = nil
+        }
     }
 
     private func useSpotifyFallback() {
@@ -241,8 +439,8 @@ final class NowPlayingService: ObservableObject {
         NSLog("VYNL: mediaremote-adapter unavailable; showing Spotify only.")
         adapter.stop()
         backend = .spotify
-        externalInfo = nil
+        externalRaw = nil
+        updateBridges()
         refresh()
-        spotify.start()
     }
 }

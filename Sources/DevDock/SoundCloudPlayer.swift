@@ -117,7 +117,7 @@ final class SoundCloudPlayer: NSObject, ObservableObject {
             elapsedAt: Date(),
             playbackRate: 1,
             isPlaying: true,
-            sourceBundleID: SourceIDs.soundCloud,
+            sourceBundleID: SourceIDs.soundCloudPlayer,
             artwork: nil,
             artworkKey: artworkKey
         ))

@@ -17,9 +17,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.4.0</string>
+    <string>0.5.0</string>
     <key>CFBundleVersion</key>
-    <string>4</string>
+    <string>5</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.2</string>
     <key>LSUIElement</key>
@@ -31,6 +31,6 @@
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>For songs without lyrics, VYNL writes down the words it hears, on this Mac.</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>VYNL shows and controls what's playing in Spotify.</string>
+    <string>VYNL shows and controls what's playing in Spotify and Music, and plays songs from your Music library.</string>
 </dict>
 </plist>

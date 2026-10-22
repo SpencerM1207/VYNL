@@ -11,15 +11,22 @@ enum DockGeometry {
     /// The lyrics column added to the left of the Now Playing tab.
     static let lyricsWidth: CGFloat = 300
 
-    /// Native SoundCloud search fits the player's width; SoundCloud's own site needs room.
-    static func expandedSize(mode: PanelMode, soundCloudNative: Bool, showsLyrics: Bool) -> NSSize {
+    /// Native searches (SoundCloud with API keys, Apple Music) fit the player's width; websites
+    /// (soundcloud.com, Spotify's web player) need room.
+    static func expandedSize(mode: PanelMode, musicService: MusicService, soundCloudNative: Bool, showsLyrics: Bool) -> NSSize {
+        let native = NSSize(width: 440, height: 560)
+        let website = NSSize(width: 900, height: 640)
         switch mode {
         case .player:
             return showsLyrics ? NSSize(width: playerSize.width + lyricsWidth, height: playerSize.height) : playerSize
         case .settings:
             return playerSize
-        case .soundCloud:
-            return soundCloudNative ? NSSize(width: 440, height: 560) : NSSize(width: 900, height: 640)
+        case .music:
+            switch musicService {
+            case .spotify: return website
+            case .soundCloud: return soundCloudNative ? native : website
+            case .appleMusic: return native
+            }
         }
     }
     static let margin: CGFloat = 12
