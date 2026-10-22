@@ -1,0 +1,7 @@
+.build/
+build/
+.swiftpm/
+Vendor/
+logs/
+.DS_Store
+handoff.md

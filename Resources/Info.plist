@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>VYNL</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.spencermarchant.vynl</string>
+    <key>CFBundleName</key>
+    <string>VYNL</string>
+    <key>CFBundleDisplayName</key>
+    <string>VYNL</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.4.0</string>
+    <key>CFBundleVersion</key>
+    <string>4</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.2</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>VYNL runs your Mac's audio through its equalizer, and for songs without lyrics it listens to write down the words. It all happens on this Mac; nothing is recorded or saved.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>For songs without lyrics, VYNL writes down the words it hears, on this Mac.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>VYNL shows and controls what's playing in Spotify.</string>
+</dict>
+</plist>
