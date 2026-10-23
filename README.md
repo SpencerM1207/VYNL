@@ -2,6 +2,23 @@
 
 A music widget for macOS: a small spinning record on your desktop that expands into a player with synced lyrics and a real, system-wide 10-band EQ. It works with Spotify, SoundCloud, Apple Music, YouTube, or anything else that shows up in macOS Now Playing.
 
+## Easy install
+
+A ready-made app for Apple Silicon Macs (M1 or later) on macOS 14.2 or later. No Xcode needed.
+
+1. Open [`dist/VYNL.zip`](dist/VYNL.zip) here on GitHub and click **Download raw file** (the ⬇ button).
+2. Double-click the zip, then drag **VYNL.app** into your **Applications** folder.
+3. Double-click VYNL. macOS says it can't be opened, because the app isn't notarized by Apple. Click **Done**.
+4. Open **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to VYNL. Enter your password if asked.
+
+If there's no Open Anyway button, paste this into Terminal instead, then open VYNL again:
+
+```
+xattr -cr /Applications/VYNL.app
+```
+
+To update, download the zip again and replace the app. On an Intel Mac, or to change the code, build it yourself below.
+
 ## Install it on your Mac
 
 You build VYNL yourself from this code. It takes about 15 minutes the first time, most of it downloading Xcode. Because the app is built on your own Mac, macOS opens it without any security warning.
