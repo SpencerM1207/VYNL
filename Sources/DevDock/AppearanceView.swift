@@ -1,13 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// The Settings tab: which app Now Playing follows, lyrics, clear background, opacity, font,
+/// The Settings tab: open at login, which app Now Playing follows, lyrics, clear background, opacity, font,
 /// hex colors and palettes. Every change applies live and is saved.
 struct AppearanceView: View {
     @ObservedObject var appearance: AppearanceSettings
     @ObservedObject var dock: DockModel
     @ObservedObject var nowPlaying: NowPlayingService
     @Environment(\.theme) private var theme
+    @StateObject private var launchAtLogin = LaunchAtLogin()
 
     /// Installed font families, read once.
     private static let fontFamilies = NSFontManager.shared.availableFontFamilies.sorted()
@@ -15,6 +16,29 @@ struct AppearanceView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                section("General") {
+                    row("Login") {
+                        Toggle("Open at login", isOn: Binding(
+                            get: { launchAtLogin.isEnabled },
+                            set: { launchAtLogin.setEnabled($0) }
+                        ))
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .labelsHidden()
+                        .tint(theme.accent)
+                        .help("Open VYNL when you log in to your Mac")
+                        Spacer()
+                    }
+                    if let message = launchAtLogin.message {
+                        Text(message)
+                            .font(theme.font(10))
+                            .foregroundStyle(theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.leading, 78)
+                    }
+                }
+                .onAppear { launchAtLogin.refresh() }
+
                 section("Now Playing") {
                     row("Follow") {
                         Picker("Follow", selection: $nowPlaying.followed) {

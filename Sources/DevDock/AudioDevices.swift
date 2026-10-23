@@ -26,6 +26,36 @@ enum AudioDevices {
         return status == 0 && device != unknown ? device : nil
     }
 
+    /// Devices that can play sound, in the HAL's order. Leaves out VYNL's own private EQ and
+    /// listening devices.
+    static func outputDevices() -> [AudioDeviceID] {
+        var address = propertyAddress(kAudioHardwarePropertyDevices)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == 0 else { return [] }
+        var devices = [AudioDeviceID](repeating: unknown, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &devices) == 0 else { return [] }
+        return devices.filter { device in
+            var streams = propertyAddress(kAudioDevicePropertyStreams, scope: kAudioObjectPropertyScopeOutput)
+            var streamsSize: UInt32 = 0
+            guard AudioObjectGetPropertyDataSize(device, &streams, 0, nil, &streamsSize) == 0,
+                  streamsSize > 0
+            else { return false }
+            let uid = self.uid(of: device) ?? ""
+            return !uid.hasPrefix("com.spencermarchant.")
+        }
+    }
+
+    /// Makes a device the Mac's sound output, like picking it in Control Center.
+    @discardableResult
+    static func setDefaultOutputDevice(_ device: AudioDeviceID) -> Bool {
+        var address = propertyAddress(kAudioHardwarePropertyDefaultOutputDevice)
+        var device = device
+        let status = AudioObjectSetPropertyData(
+            system, &address, 0, nil, UInt32(MemoryLayout<AudioDeviceID>.size), &device
+        )
+        return status == 0
+    }
+
     static func name(of object: AudioObjectID) -> String? {
         stringProperty(kAudioObjectPropertyName, of: object)
     }

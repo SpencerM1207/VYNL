@@ -209,7 +209,7 @@ struct ExpandedPlayerView: View {
                     }
                     HStack(spacing: 6) {
                         sourceChip
-                        InfoChip(symbol: "hifispeaker.fill", text: output.deviceName)
+                        outputChip
                     }
                     .padding(.top, 2)
                     Spacer(minLength: 0)
@@ -256,6 +256,36 @@ struct ExpandedPlayerView: View {
         .help(followed == .auto
             ? "Showing whatever's playing. Click to follow one app."
             : "Following \(followed.title) only. Click to change.")
+    }
+
+    /// The speakers or headphones playing now. Click it to switch to another output.
+    private var outputChip: some View {
+        Button {
+            showOutputMenu()
+        } label: {
+            InfoChip(symbol: "hifispeaker.fill", text: output.deviceName, opensMenu: true)
+        }
+        .buttonStyle(.plain)
+        .help("Click to choose where sound plays.")
+    }
+
+    private func showOutputMenu() {
+        let current = output.deviceID
+        let devices = AudioDevices.outputDevices()
+        guard !devices.isEmpty else { return }
+        PopupMenu.show(
+            header: "Play sound through",
+            items: devices.map { device in
+                PopupMenu.Item(
+                    title: AudioDevices.name(of: device) ?? "Unknown device",
+                    isChecked: device == current
+                ) {
+                    if !AudioDevices.setDefaultOutputDevice(device) {
+                        NSLog("VYNL: couldn't switch output to %@", AudioDevices.name(of: device) ?? "?")
+                    }
+                }
+            }
+        )
     }
 
     private func showFollowMenu() {

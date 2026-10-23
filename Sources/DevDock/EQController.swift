@@ -48,6 +48,8 @@ final class EQController: ObservableObject {
     private var engine: ProcessTapEngine?
     private var watchdog: Timer?
     private var startedAt = Date()
+    /// The output device the EQ settings belong to.
+    private var deviceUID: String?
     private var cancellables = Set<AnyCancellable>()
 
     private enum Keys {
@@ -55,6 +57,9 @@ final class EQController: ObservableObject {
         static let customGains = "eqCustomGains"
         static let enabled = "eqEnabled"
         static let heardAudio = "eqHasHeardAudio"
+        /// Output device UID → preset, and → custom gains, so each device keeps its own EQ.
+        static let presetByDevice = "eqPresetByDevice"
+        static let customGainsByDevice = "eqCustomGainsByDevice"
     }
 
     init(output: OutputDeviceMonitor) {
@@ -71,8 +76,10 @@ final class EQController: ObservableObject {
         output.$deviceID
             .dropFirst()
             .removeDuplicates()
-            .sink { [weak self] _ in self?.outputChanged() }
+            .sink { [weak self] id in self?.outputChanged(to: id) }
             .store(in: &cancellables)
+        deviceUID = (output.deviceID ?? AudioDevices.defaultOutputDevice()).flatMap { AudioDevices.uid(of: $0) }
+        loadSettingsForCurrentDevice()
         if isEnabled {
             startEngine()
         }
@@ -96,8 +103,9 @@ final class EQController: ObservableObject {
 
     func select(_ preset: EQPreset) {
         self.preset = preset
-        gains = preset.gains ?? Self.savedCustomGains()
+        gains = preset.gains ?? savedCustomGains(for: deviceUID)
         UserDefaults.standard.set(preset.rawValue, forKey: Keys.preset)
+        saveForCurrentDevice()
         pushGains()
     }
 
@@ -111,6 +119,7 @@ final class EQController: ObservableObject {
             UserDefaults.standard.set(EQPreset.custom.rawValue, forKey: Keys.preset)
         }
         UserDefaults.standard.set(gains.map { Double($0) }, forKey: Keys.customGains)
+        saveForCurrentDevice()
         pushGains()
     }
 
@@ -171,7 +180,10 @@ final class EQController: ObservableObject {
         }
     }
 
-    private func outputChanged() {
+    private func outputChanged(to device: AudioDeviceID?) {
+        // @Published sends before it stores, so use the new ID passed in, not output.deviceID.
+        deviceUID = device.flatMap { AudioDevices.uid(of: $0) }
+        loadSettingsForCurrentDevice()
         guard isEnabled else { return }
         // Give macOS a moment to finish switching (Bluetooth can take a beat).
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
@@ -189,24 +201,70 @@ final class EQController: ObservableObject {
     }
 
     /// If permission was denied, the tap delivers silence while still muting every app.
-    /// Turn the EQ off rather than leave the Mac silent.
+    /// Turn the EQ off rather than leave the Mac silent. Once this run has heard audio the
+    /// permission works, so later silence (a song's dead air at the end, a quiet intro) is real
+    /// and the EQ stays on.
     private func checkForSilence() {
         guard let dsp = engine?.equalizer else { return }
         let defaults = UserDefaults.standard
         if dd_eq_has_heard_audio(dsp) != 0 {
             defaults.set(true, forKey: Keys.heardAudio)
+            watchdog?.invalidate()
+            watchdog = nil
+            return
         }
         // Before audio has ever come through, leave time to answer the permission prompt.
-        let grace: TimeInterval = defaults.bool(forKey: Keys.heardAudio) ? 3 : 20
+        let grace: TimeInterval = defaults.bool(forKey: Keys.heardAudio) ? 10 : 20
         guard Date().timeIntervalSince(startedAt) > grace,
               isMusicPlaying(),
-              dd_eq_silent_seconds(dsp) > 3
+              dd_eq_silent_seconds(dsp) > 10
         else { return }
 
         stopEngine()
         isEnabled = false
         defaults.set(false, forKey: Keys.enabled)
         statusMessage = "No sound reached the EQ, so it turned itself off. Allow VYNL in System Settings > Privacy & Security > Screen & System Audio Recording, then turn the EQ on again."
+    }
+
+    // MARK: - Per-device settings
+
+
+    /// Switches to the preset last used on this output device. A device seen for the first
+    /// time keeps the current EQ until it's changed there.
+    private func loadSettingsForCurrentDevice() {
+        guard let uid = deviceUID,
+              let raw = (UserDefaults.standard.dictionary(forKey: Keys.presetByDevice) as? [String: String])?[uid],
+              let saved = EQPreset(rawValue: raw)
+        else { return }
+        let savedGains = saved.gains ?? savedCustomGains(for: uid)
+        guard saved != preset || savedGains != gains else { return }
+        preset = saved
+        gains = savedGains
+        UserDefaults.standard.set(saved.rawValue, forKey: Keys.preset)
+        pushGains()
+    }
+
+    private func saveForCurrentDevice() {
+        guard let uid = deviceUID else { return }
+        let defaults = UserDefaults.standard
+        var presets = defaults.dictionary(forKey: Keys.presetByDevice) as? [String: String] ?? [:]
+        presets[uid] = preset.rawValue
+        defaults.set(presets, forKey: Keys.presetByDevice)
+        if preset == .custom {
+            var custom = defaults.dictionary(forKey: Keys.customGainsByDevice) as? [String: [Double]] ?? [:]
+            custom[uid] = gains.map { Double($0) }
+            defaults.set(custom, forKey: Keys.customGainsByDevice)
+        }
+    }
+
+    /// This device's custom curve, falling back to the last custom curve on any device.
+    private func savedCustomGains(for uid: String?) -> [Float] {
+        if let uid,
+           let saved = (UserDefaults.standard.dictionary(forKey: Keys.customGainsByDevice) as? [String: [Double]])?[uid],
+           saved.count == Self.labels.count {
+            return saved.map { Float($0) }
+        }
+        return Self.savedCustomGains()
     }
 
     private static func savedCustomGains() -> [Float] {
