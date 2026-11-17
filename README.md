@@ -6,7 +6,7 @@ A music widget for macOS: a small spinning record on your desktop that expands i
 
 A ready-made app for Apple Silicon Macs (M1 or later) on macOS 14.2 or later. No Xcode needed.
 
-1. Open [`dist/VYNL.zip`](dist/VYNL.zip) here on GitHub and click **Download raw file** (the ⬇ button).
+1. Download **VYNL.zip** from the [latest release](https://github.com/SpencerM1207/VYNL/releases/latest) (or open [`dist/VYNL.zip`](dist/VYNL.zip) here and click **Download raw file**). What changed is in the release notes and [`CHANGELOG.md`](CHANGELOG.md).
 2. Double-click the zip, then drag **VYNL.app** into your **Applications** folder.
 3. Double-click VYNL. macOS says it can't be opened, because the app isn't notarized by Apple. Click **Done**.
 4. Open **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to VYNL. Enter your password if asked.
