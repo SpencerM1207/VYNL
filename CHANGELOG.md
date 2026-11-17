@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1 (Nov 17, 2026)
+
+### Fixed
+- **Player hidden on some desktops:** 0.6.0's fix didn't hold, and the player could still open invisibly on every desktop but one. The player now moves to the desktop you're on each time it opens, and a pinned player follows you when you switch desktops.
+
 ## 0.6.0 (Nov 17, 2026)
 
 ### New

@@ -48,6 +48,9 @@ final class DockController: NSObject {
         recordPanel.applyFloatingStyle()
         recordPanel.hasShadow = false // the record draws its own glow
         playerPanel.applyFloatingStyle()
+        // The player follows you instead of living on every Space: with canJoinAllSpaces macOS
+        // sometimes pinned it to one desktop, so it opened invisibly everywhere else.
+        playerPanel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle]
 
         let record = CollapsedRecordView(nowPlaying: store.nowPlaying, appearance: store.appearance)
         let recordHost = FirstMouseHostingView(rootView: ThemedRoot(appearance: store.appearance, content: record))
@@ -86,6 +89,13 @@ final class DockController: NSObject {
             selector: #selector(playerPanelDidResignKey(_:)),
             name: NSWindow.didResignKeyNotification,
             object: playerPanel
+        )
+        // A pinned player comes along when you switch desktops.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(activeSpaceChanged(_:)),
+            name: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil
         )
         center.addObserver(
             self,
@@ -196,18 +206,9 @@ final class DockController: NSObject {
 
     // MARK: - Private
 
-    /// Brings the player forward and gives it the keyboard. makeKeyAndOrderFront alone sometimes
-    /// left it off the current Space (seen on Desktop 1 only): open, but not shown there. Ordering
-    /// it in like the record does, then re-joining every Space if macOS still disagrees, fixes it.
+    /// Brings the player forward on the Space you're on and gives it the keyboard.
     private func showPlayerOnCurrentSpace() {
         playerPanel.orderFrontRegardless()
-        if !playerPanel.isOnActiveSpace {
-            NSLog("VYNL: player wasn't on the current Space; re-joining all Spaces")
-            playerPanel.orderOut(nil)
-            playerPanel.collectionBehavior = []
-            playerPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-            playerPanel.orderFrontRegardless()
-        }
         playerPanel.makeKey()
     }
 
@@ -313,6 +314,11 @@ final class DockController: NSObject {
     @objc private func playerPanelDidResignKey(_ notification: Notification) {
         guard phase == .expanded, !store.dock.isPinned, !store.dock.holdOpen else { return }
         collapse()
+    }
+
+    @objc private func activeSpaceChanged(_ notification: Notification) {
+        guard phase == .expanded, !playerPanel.isOnActiveSpace else { return }
+        playerPanel.orderFrontRegardless()
     }
 
     @objc private func screensChanged(_ notification: Notification) {
