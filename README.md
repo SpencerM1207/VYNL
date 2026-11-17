@@ -87,7 +87,7 @@ The first build downloads and builds the Now Playing helper, so give it a few mi
 open ~/Applications/VYNL.app
 ```
 
-A small spinning record appears at the top left of your screen and a record icon in the menu bar. Click the record (or press Control-Option-M) to open the player. To start it automatically, add VYNL in System Settings > General > Login Items.
+A small spinning record appears at the top left of your screen and a record icon in the menu bar. Click the record (or press Control-Option-M) to open the player. To start it automatically, turn on Settings > General > Login.
 
 ### Updating
 
@@ -108,17 +108,18 @@ scripts/build-and-log.sh
 
 - **Open the player:** click the record, press Control-Option-M, or use the record icon in the menu bar.
 - **Move the record:** drag it anywhere. It snaps to nearby edges and remembers the spot.
-- **Close it:** click the top bar or the chevron, press Esc or Control-Option-M, or click another app. The pin keeps it open when you click elsewhere.
+- **Close it:** click the top bar or the chevron, press Esc or Control-Option-M, or click anywhere outside it (another app or empty desktop). The pin keeps it open when you click elsewhere.
 - **Lyrics:** shown beside Now Playing. The mic button or Settings turns them on and off; Settings also picks the side. The timer button fixes the timing: tap the line you're hearing, or nudge earlier/later.
 - **Music tab:** pick Spotify, SoundCloud or Apple Music at the top. Spotify and SoundCloud open their websites right in the player (sign in once). Apple Music searches your library and the Apple Music catalog: library songs play in the Music app, catalog songs open there.
 - **Follow one app:** click the source tag under the song title (or Settings > Now Playing > Follow) and pick Spotify, SoundCloud or Apple Music. The player, controls and lyrics then stay on that app even if something else is playing. Auto shows whatever's playing.
-- **Settings:** the sliders icon. Which app to follow, lyrics, clear background, opacity, font, and colors.
+- **Settings:** the gear icon. Open at login, which app to follow, lyrics, clear background, opacity, font, and colors. The eyedropper next to each color picks one from anywhere on screen, like your wallpaper.
+- **Sound output:** click the speaker tag under the song title to switch between speakers and headphones. The EQ remembers a separate preset for each output.
 - **Seek:** drag the progress bar, or click a lyric line. **EQ band:** drag a knob, double-click to reset it to 0 dB.
 - **Menu:** right-click the record, or click the menu bar icon. Quit is there.
 
 ## Permissions (asked once)
 
-- **System Audio Recording:** asked the first time you turn on the EQ, or when VYNL listens to a song to write down its lyrics. While the EQ is on, every app's sound goes through VYNL. If no sound comes through, the EQ turns itself off after a few seconds so your Mac is never left silent. Re-allow it under System Settings > Privacy & Security > Screen & System Audio Recording.
+- **System Audio Recording:** asked the first time you turn on the EQ, or when VYNL listens to a song to write down its lyrics. While the EQ is on, every app's sound goes through VYNL. If no sound ever comes through after you turn it on, the EQ turns itself off so your Mac is never left silent. Quiet parts of songs don't trigger this. Re-allow it under System Settings > Privacy & Security > Screen & System Audio Recording.
 - **Speech Recognition:** asked the first time VYNL writes down lyrics for a song that isn't in the lyrics database. It runs on your Mac.
 - **Automation (Spotify, Music):** asked when you set VYNL to follow Spotify or Apple Music, search your Music library, or if the Now Playing helper is missing and VYNL falls back to controlling Spotify directly. Change it under System Settings > Privacy & Security > Automation.
 

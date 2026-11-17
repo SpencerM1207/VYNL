@@ -4,7 +4,7 @@ import SwiftUI
 /// a lyrics column on the right (or left; mic button or Settings). The source tag picks which
 /// app Now Playing follows.
 /// Music tab: Spotify, SoundCloud or Apple Music, browsed and played inside VYNL.
-/// Settings tab (sliders icon): which app to follow, lyrics, clear background, opacity, font, colors.
+/// Settings tab (gear icon): which app to follow, lyrics, clear background, opacity, font, colors.
 /// Only the parts that change often observe their own data, so the 30 fps spectrum and the
 /// lyrics timer don't re-render the whole panel.
 struct ExpandedPlayerView: View {
@@ -140,7 +140,8 @@ struct ExpandedPlayerView: View {
             Button {
                 dock.mode = dock.mode == .settings ? .player : .settings
             } label: {
-                Image(systemName: "slider.horizontal.3")
+                Image(systemName: "gearshape")
+                    .imageScale(.small)
             }
             .buttonStyle(.plain)
             .foregroundStyle(dock.mode == .settings ? theme.accent : theme.textSecondary)

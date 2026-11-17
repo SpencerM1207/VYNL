@@ -141,9 +141,9 @@ struct AppearanceView: View {
                 }
 
                 section("Colors") {
-                    HexColorField(label: "Accent", hex: $appearance.accentHex)
-                    HexColorField(label: "Background", hex: $appearance.backgroundHex)
-                    HexColorField(label: "Text", hex: $appearance.textHex)
+                    HexColorField(label: "Accent", hex: $appearance.accentHex, onSampling: setSampling)
+                    HexColorField(label: "Background", hex: $appearance.backgroundHex, onSampling: setSampling)
+                    HexColorField(label: "Text", hex: $appearance.textHex, onSampling: setSampling)
                     presetRow
                 }
 
@@ -218,6 +218,18 @@ struct AppearanceView: View {
             .frame(width: 8, height: 14)
     }
 
+    /// The eyedropper's click lands outside VYNL, which would close the player, so keep it
+    /// open while sampling and a moment after.
+    private func setSampling(_ active: Bool) {
+        if active {
+            dock.holdOpen = true
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [dock] in
+                dock.holdOpen = false
+            }
+        }
+    }
+
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title.uppercased())
@@ -257,6 +269,8 @@ struct AppearanceView: View {
 struct HexColorField: View {
     let label: String
     @Binding var hex: String
+    /// Told when the eyedropper starts (true) and ends (false).
+    var onSampling: (Bool) -> Void = { _ in }
 
     @Environment(\.theme) private var theme
     @State private var draft = ""
@@ -289,6 +303,16 @@ struct HexColorField: View {
                 .onSubmit {
                     draft = HexColor.normalize(draft) ?? hex
                 }
+            Button(action: sampleColor) {
+                Image(systemName: "eyedropper")
+                    .font(theme.font(11, .medium))
+                    .foregroundStyle(theme.textSecondary)
+                    .frame(width: 24, height: 24)
+                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.white.opacity(0.06)))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Pick a color from anywhere on screen")
             Spacer()
         }
         .onAppear { draft = hex }
@@ -302,6 +326,17 @@ struct HexColorField: View {
             if HexColor.normalize(draft) != newValue {
                 draft = newValue
             }
+        }
+    }
+
+    /// The system eyedropper: a magnifier follows the pointer and a click picks that pixel.
+    private func sampleColor() {
+        onSampling(true)
+        NSColorSampler().show { picked in
+            onSampling(false)
+            guard let rgb = picked?.usingColorSpace(.sRGB) else { return }
+            let channel = { (value: CGFloat) in Int((min(max(value, 0), 1) * 255).rounded()) }
+            draft = String(format: "#%02X%02X%02X", channel(rgb.redComponent), channel(rgb.greenComponent), channel(rgb.blueComponent))
         }
     }
 }

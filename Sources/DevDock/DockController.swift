@@ -25,6 +25,8 @@ final class DockController: NSObject {
     private let playerPanel: ExpandedPanel
     private var phase: Phase = .collapsed
     private var hotKey: GlobalHotKey?
+    /// Watches clicks outside VYNL while the player is open, so clicking empty desktop closes it too.
+    private var outsideClickMonitor: Any?
     private var cancellables = Set<AnyCancellable>()
 
     init(store: PlayerStore) {
@@ -128,7 +130,7 @@ final class DockController: NSObject {
             .sink { [weak self] _ in
                 DispatchQueue.main.async {
                     guard let self, self.phase == .expanded else { return }
-                    self.playerPanel.makeKeyAndOrderFront(nil)
+                    self.showPlayerOnCurrentSpace()
                 }
             }
             .store(in: &cancellables)
@@ -157,7 +159,7 @@ final class DockController: NSObject {
 
         playerPanel.alphaValue = 0
         playerPanel.setFrame(start, display: false)
-        playerPanel.makeKeyAndOrderFront(nil)
+        showPlayerOnCurrentSpace()
         recordPanel.orderOut(nil)
         store.dock.isExpanded = true
 
@@ -165,12 +167,14 @@ final class DockController: NSObject {
             guard let self else { return }
             self.phase = .expanded
             self.playerPanel.invalidateShadow()
+            self.startWatchingOutsideClicks()
         }
     }
 
     func collapse() {
         guard phase == .expanded else { return }
         phase = .collapsing
+        stopWatchingOutsideClicks()
 
         // The record keeps its frame while hidden, so shrink back into it.
         let target = recordPanel.frame
@@ -191,6 +195,21 @@ final class DockController: NSObject {
     }
 
     // MARK: - Private
+
+    /// Brings the player forward and gives it the keyboard. makeKeyAndOrderFront alone sometimes
+    /// left it off the current Space (seen on Desktop 1 only): open, but not shown there. Ordering
+    /// it in like the record does, then re-joining every Space if macOS still disagrees, fixes it.
+    private func showPlayerOnCurrentSpace() {
+        playerPanel.orderFrontRegardless()
+        if !playerPanel.isOnActiveSpace {
+            NSLog("VYNL: player wasn't on the current Space; re-joining all Spaces")
+            playerPanel.orderOut(nil)
+            playerPanel.collectionBehavior = []
+            playerPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+            playerPanel.orderFrontRegardless()
+        }
+        playerPanel.makeKey()
+    }
 
     private var recordScreen: NSScreen? {
         DockGeometry.screen(containing: recordPanel.frame)
@@ -245,7 +264,7 @@ final class DockController: NSObject {
     /// Otherwise it toggles.
     private func hotKeyPressed() {
         if phase == .expanded && !playerPanel.isKeyWindow {
-            playerPanel.makeKeyAndOrderFront(nil)
+            showPlayerOnCurrentSpace()
         } else {
             toggle()
         }
@@ -269,6 +288,26 @@ final class DockController: NSObject {
         }, completionHandler: {
             Task { @MainActor in completion() }
         })
+    }
+
+    /// Clicking another window already closes the player (it loses key status), but clicking
+    /// empty desktop doesn't take key status away. A global monitor sees clicks in other apps
+    /// and on the desktop only, never in VYNL's own windows, menus or sign-in popups.
+    private func startWatchingOutsideClicks() {
+        guard outsideClickMonitor == nil else { return }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.phase == .expanded, !self.store.dock.isPinned, !self.store.dock.holdOpen else { return }
+                self.collapse()
+            }
+        }
+    }
+
+    private func stopWatchingOutsideClicks() {
+        if let outsideClickMonitor {
+            NSEvent.removeMonitor(outsideClickMonitor)
+        }
+        outsideClickMonitor = nil
     }
 
     @objc private func playerPanelDidResignKey(_ notification: Notification) {
